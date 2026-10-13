@@ -220,8 +220,8 @@
         <div class="small muted">${sum.count} payment${sum.count === 1 ? '' : 's'}</div></div>
       <div class="stat"><div class="label">Budget left</div><div class="value num ${left < 0 ? 'danger' : ''}">${report.totalBudget ? usd(left) : '—'}</div>
         <div class="small muted">${report.totalBudget ? 'of ' + usd(report.totalBudget, { whole: true }) : 'No budget set'}</div></div>
-      <div class="stat"><div class="label">Income</div><div class="value num">${usd(sum.income)}</div>
-        <div class="small muted">${sum.income ? 'Net ' + usd(sum.income - sum.spent) : '&nbsp;'}</div></div>
+      <div class="stat"><div class="label">Paid in cash</div><div class="value num">${usd(sum.byPaymentType.cash || 0)}</div>
+        <div class="small muted">${sum.spent ? Math.round(((sum.byPaymentType.cash || 0) / sum.spent) * 100) + '% of spending' : '&nbsp;'}</div></div>
     </div><div style="height:14px"></div>`;
 
     // Cash planning
@@ -331,7 +331,7 @@
 
     const filters = [
       ['all', 'All'], ['expense', 'Spending'], ['cash', 'Cash'], ['card', 'Card'],
-      ['cur:USD', 'USD'], ['cur:GBP', 'GBP'], ['cur:ZAR', 'ZAR'], ['income', 'Income'], ['transfer', 'Moves'],
+      ['cur:USD', 'USD'], ['cur:GBP', 'GBP'], ['cur:ZAR', 'ZAR'], ['transfer', 'Moves'],
     ];
     let html = `<div class="card"><div class="chips">${filters
       .map(([k, l]) => `<label><input type="radio" name="txn-filter" value="${k}" ${ui.filter === k ? 'checked' : ''}>${l}</label>`)
@@ -566,7 +566,7 @@
     const body = `
       <div class="seg" role="radiogroup">
         <label><input type="radio" name="type" value="expense" ${t.type === 'expense' ? 'checked' : ''}>Spent</label>
-        <label><input type="radio" name="type" value="income" ${t.type === 'income' ? 'checked' : ''}>Received</label>
+        ${t.type === 'income' ? `<label><input type="radio" name="type" value="income" checked>Received</label>` : ''}
         <label><input type="radio" name="type" value="transfer" ${t.type === 'transfer' ? 'checked' : ''}>Move / exchange</label>
       </div>
       <div class="field"><div class="label" data-wallet-label>Paid with</div>${walletChips('walletId', walletId, existing ? state.wallets : wallets)}</div>
