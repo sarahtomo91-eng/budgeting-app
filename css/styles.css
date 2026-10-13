@@ -279,3 +279,5 @@ table.simple td.num, table.simple th.num { text-align: right; }
   z-index: 20;
 }
 #toast.show { opacity: 1; }
+.stats.two { grid-template-columns: 1fr 1fr; }
+.stats.two .stat:first-child { grid-column: auto; }

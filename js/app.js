@@ -8,6 +8,8 @@
   const RATE_STALE_DAYS = 14;
 
   let state = load();
+  const setupAdded = C.applySetup(state, window.FAMILY_SETUP);
+  if (setupAdded) save();
   const prefs = loadPrefs();
   const ui = { tab: 'home', month: C.monthKey(C.todayISO()), filter: 'all' };
 
@@ -163,12 +165,12 @@
 
     let html = rateWarning();
 
-    if (state.transactions.length === 0 && state.recurring.length === 0) {
+    if (state.transactions.length === 0) {
       html += `<div class="card"><h2>Getting started</h2>
         <ol class="small">
           <li>Check your <b>wallets</b> (USD cash, GBP card, ZAR card…) in Settings and add opening balances if you want to track how much cash is in the house.</li>
           <li>Set today's <b>exchange rates</b>.</li>
-          <li>Add your regular <b>monthly costs</b> (staff wages, school fees, rent, DStv…) under “Monthly”.</li>
+          <li>Check your <b>regular costs</b> (wages, school fees, WiFi, DStv…) under “Regular” – change the amount, wallet or due day if needed.</li>
           <li>Tap <b>+</b> whenever you pay for something. Pick the wallet and category – the app converts everything to USD for you.</li>
         </ol></div>`;
     }
@@ -199,8 +201,8 @@
     // Upcoming fixed costs
     if (status.length) {
       const unpaid = status.filter((s) => !s.paid);
-      html += `<div class="card"><h2>Monthly costs <small>${paidCount} of ${status.length} paid</small></h2>`;
-      if (unpaid.length === 0) html += `<div class="small ok">All fixed costs paid for ${esc(monthLabel(ui.month))} 🎉</div>`;
+      html += `<div class="card"><h2>Regular costs <small>${paidCount} of ${status.length} paid</small></h2>`;
+      if (unpaid.length === 0) html += `<div class="small ok">All regular costs paid for ${esc(monthLabel(ui.month))} 🎉</div>`;
       else html += `<ul class="rows">${unpaid.slice(0, 5).map(recurringRow).join('')}</ul>`;
       if (unpaid.length > 5) html += `<button class="btn small" data-tab="fixed">See all ${unpaid.length} unpaid</button>`;
       html += `</div>`;
@@ -266,7 +268,7 @@
     const paidAmt = s.payments.reduce((a, t) => a + t.amount, 0);
     return `<li><div class="icon">${esc(cat.icon)}</div><div class="grow">
         <div class="title">${esc(s.item.name)}</div>
-        <div class="small muted">${walletPill(w)} ${tag}</div></div>
+        <div class="small muted">${walletPill(w)} ${tag}${C.isMonthly(s.item) ? '' : ' <span class="pill">' + esc(C.frequencyLabel(s.item).split(' (')[0]) + '</span>'}</div></div>
       <div class="right"><div class="num"><b>${money(s.paid ? paidAmt : s.item.amount, cur)}</b></div>
         ${cur !== 'USD' ? `<div class="small muted num">≈ ${usd(s.expectedUsd)}</div>` : ''}
         ${s.paid ? '' : `<button class="btn small primary" data-action="pay-recurring" data-id="${esc(s.item.id)}" style="margin-top:4px">Pay</button>`}</div></li>`;
@@ -345,14 +347,24 @@
   function viewFixed() {
     const status = C.recurringStatus(state, ui.month, C.todayISO());
     const inactive = state.recurring.filter((r) => r.active === false);
-    let html = `<div class="card"><h2>Monthly costs for ${esc(monthLabel(ui.month))}</h2>
-      <p class="small muted" style="margin-top:0">Regular payments – staff wages, school fees, rent, subscriptions. Tap <b>Pay</b> when you pay one: it's recorded with the right wallet and category, and you can change the amount if it was different this month.</p>`;
+    let html = `<div class="card"><h2>Due in ${esc(monthLabel(ui.month))}</h2>
+      <p class="small muted" style="margin-top:0">Regular payments – staff wages, WiFi, subscriptions, and termly ones like school fees. Tap <b>Pay</b> when you pay one: it's recorded with the right wallet and category, and you can change the amount if it was different this time.</p>`;
     if (status.length === 0) {
-      html += `<div class="empty">No monthly costs yet.</div>`;
+      html += `<div class="empty">Nothing due this month.</div>`;
     } else {
       html += `<ul class="rows">${status.map(recurringRow).join('')}</ul>`;
     }
-    html += `<div class="btn-row"><button class="btn primary" data-action="add-recurring">+ Add monthly cost</button></div></div>`;
+    html += `<div class="btn-row"><button class="btn primary" data-action="add-recurring">+ Add regular cost</button></div></div>`;
+
+    if (state.recurring.length) {
+      const year = C.annualFixed(state);
+      html += `<div class="card"><h2>Over a year <small>at today's rates</small></h2>
+        <div class="stats two">
+          <div class="stat"><div class="label">Per year</div><div class="value num">${usd(year.total, { whole: true })}</div></div>
+          <div class="stat"><div class="label">Average / month</div><div class="value num">${usd(year.monthlyAverage, { whole: true })}</div></div>
+        </div>
+        <div class="small muted" style="margin-top:8px">Termly and yearly costs only show up in the months they're due. The average tells you how much to put aside each month to cover them.</div></div>`;
+    }
 
     if (status.length) {
       // totals per wallet
@@ -362,19 +374,21 @@
         perWallet[s.item.walletId] = (perWallet[s.item.walletId] || 0) + Number(s.item.amount);
         totalUsd += s.expectedUsd;
       }
-      html += `<div class="card"><h2>Fixed costs per month <small>≈ ${usd(totalUsd)}</small></h2><table class="simple"><tbody>`;
+      html += `<div class="card"><h2>Due this month by wallet <small>≈ ${usd(totalUsd)}</small></h2><table class="simple"><tbody>`;
       for (const id of Object.keys(perWallet)) {
         const w = C.walletById(state, id);
         html += `<tr><td>${walletPill(w)}</td><td class="num">${money(perWallet[id], w ? w.currency : 'USD')}</td></tr>`;
       }
       html += `</tbody></table><div class="small muted" style="margin-top:8px">Useful for knowing how much cash to draw and how much to keep in each card account.</div></div>`;
+    }
 
-      html += `<div class="card"><h2>Edit monthly costs</h2><ul class="rows">`;
+    if (state.recurring.length) {
+      html += `<div class="card"><h2>All regular costs</h2><ul class="rows">`;
       for (const r of [...state.recurring].sort((a, b) => a.name.localeCompare(b.name))) {
         const w = C.walletById(state, r.walletId);
         html += `<li class="clickable" data-action="edit-recurring" data-id="${esc(r.id)}"><div class="icon">${esc(C.categoryById(state, r.categoryId).icon)}</div>
           <div class="grow"><div class="title">${esc(r.name)}${r.active === false ? ' <span class="pill">paused</span>' : ''}</div>
-          <div class="small muted">Day ${esc(r.dayOfMonth)} · ${esc(w ? w.name : '')}</div></div>
+          <div class="small muted">${esc(C.frequencyLabel(r))} · day ${esc(r.dayOfMonth)} · ${esc(w ? w.name : '')}</div></div>
           <div class="num">${money(r.amount, w ? w.currency : 'USD')}</div></li>`;
       }
       html += `</ul></div>`;
@@ -387,16 +401,19 @@
   function viewBudget() {
     const report = C.budgetReport(state, ui.month);
     let html = `<div class="card"><h2>Monthly budget <small>in USD</small></h2>
-      <p class="small muted" style="margin-top:0">Set how much you want to spend each month per category, in USD. Spending in any currency counts against it at the exchange rate of the day. “Fixed” is what your monthly costs in that category add up to.</p>
+      <p class="small muted" style="margin-top:0">Set how much you want to spend each month per category, in USD. Spending in any currency counts against it at the exchange rate of the day. “Fixed” is what your regular costs in that category add up to this month. Termly costs like school fees are added to the budget automatically in the months they're due.</p>
       <table class="simple"><thead><tr><th>Category</th><th class="num">Fixed</th><th class="num">Budget</th><th class="num">Spent</th></tr></thead><tbody>`;
     for (const r of report.rows) {
-      html += `<tr><td>${esc(r.category.icon)} ${esc(r.category.name)}${r.budget ? pctBar(r.spent, r.budget) : ''}</td>
+      const notes = [];
+      if (r.regular) notes.push(`≈ ${usd(r.regular * 12 / 52, { whole: true })}/week`);
+      if (r.seasonal) notes.push(`+ ${usd(r.seasonal, { whole: true })} due this month`);
+      html += `<tr><td>${esc(r.category.icon)} ${esc(r.category.name)}${notes.length ? `<div class="small muted">${notes.join(' · ')}</div>` : ''}${r.budget ? pctBar(r.spent, r.budget) : ''}</td>
         <td class="num muted">${r.fixed ? usd(r.fixed, { whole: true }) : ''}</td>
-        <td class="num"><input class="budget-input" inputmode="decimal" data-budget="${esc(r.category.id)}" value="${r.budget || ''}" placeholder="0" aria-label="Budget for ${esc(r.category.name)}"></td>
+        <td class="num"><input class="budget-input" inputmode="decimal" data-budget="${esc(r.category.id)}" value="${r.regular || ''}" placeholder="0" aria-label="Budget for ${esc(r.category.name)}"></td>
         <td class="num ${r.budget && r.spent > r.budget ? 'danger' : ''}">${r.spent ? usd(r.spent, { whole: true }) : ''}</td></tr>`;
     }
     const totalFixed = report.rows.reduce((a, r) => a + r.fixed, 0);
-    html += `<tr><td><b>Total</b></td><td class="num"><b>${usd(totalFixed, { whole: true })}</b></td><td class="num"><b>${usd(report.totalBudget, { whole: true })}</b></td><td class="num"><b>${usd(report.totalSpent, { whole: true })}</b></td></tr>`;
+    html += `<tr><td><b>Total</b></td><td class="num"><b>${usd(totalFixed, { whole: true })}</b></td><td class="num"><b>${usd(report.totalBudget, { whole: true })}</b>${report.totalBudget !== report.rows.reduce((a, r) => a + r.regular, 0) ? '<div class="small muted">incl. termly</div>' : ''}</td><td class="num"><b>${usd(report.totalSpent, { whole: true })}</b></td></tr>`;
     html += `</tbody></table>
       <div class="btn-row"><button class="btn small" data-action="budget-from-fixed">Fill empty budgets from fixed costs</button>
       <button class="btn small" data-action="budget-from-last">Use last month's spending</button></div></div>`;
@@ -636,15 +653,23 @@
       <div class="field"><div class="label">Paid with</div>${walletChips('walletId', r.walletId, wallets)}</div>
       <div class="field"><label for="rc">Category</label><select id="rc" name="categoryId">${state.categories
         .map((c) => `<option value="${esc(c.id)}" ${c.id === r.categoryId ? 'selected' : ''}>${esc(c.icon)} ${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="field"><label for="rf">How often</label><select id="rf" name="frequency">
+        <option value="monthly" ${C.isMonthly(r) ? 'selected' : ''}>Every month</option>
+        <option value="months" ${C.isMonthly(r) ? '' : 'selected'}>Only in some months (termly, yearly…)</option></select></div>
+      <div class="field" data-months ${C.isMonthly(r) ? 'hidden' : ''}><div class="label">Due in</div><div class="chips">${C.MONTH_NAMES
+        .map((m, i) => `<label><input type="checkbox" name="months" value="${i + 1}" ${(r.months || [1, 5, 9]).includes(i + 1) ? 'checked' : ''}>${m}</label>`).join('')}</div>
+        <div class="hint">School terms usually start in Jan, May and Sep.</div></div>
       <div class="field"><label><input type="checkbox" name="active" ${r.active !== false ? 'checked' : ''}> Active (uncheck to pause)</label></div>`;
     const footer = existing ? `<button class="btn danger" type="button" data-action="delete-recurring" data-id="${esc(existing.id)}">Delete</button>` : '';
-    openSheet(existing ? 'Edit monthly cost' : 'New monthly cost', body, (fd) => {
+    const form = openSheet(existing ? 'Edit regular cost' : 'New regular cost', body, (fd) => {
       const name = String(fd.get('name') || '').trim();
       const amount = parseAmount(fd.get('amount'));
       const walletId = fd.get('walletId');
+      const months = fd.get('frequency') === 'months' ? fd.getAll('months').map(Number) : [];
       if (!name) return 'Enter a name';
       if (!(amount > 0)) return 'Enter an amount';
       if (!walletId) return 'Choose a wallet';
+      if (fd.get('frequency') === 'months' && months.length === 0) return 'Choose at least one month';
       const item = existing || { id: C.uid() };
       Object.assign(item, {
         name,
@@ -654,11 +679,16 @@
         dayOfMonth: Math.min(31, Math.max(1, parseInt(fd.get('dayOfMonth'), 10) || 1)),
         active: fd.get('active') === 'on',
       });
+      if (months.length && months.length < 12) item.months = months;
+      else delete item.months;
       if (!existing) state.recurring.push(item);
       save();
       toast('Saved');
       return null;
     }, footer);
+    form.elements.frequency.addEventListener('change', (e) => {
+      form.querySelector('[data-months]').hidden = e.target.value !== 'months';
+    });
   }
 
   function openWalletSheet(existing) {
@@ -772,8 +802,8 @@
     const report = C.budgetReport(state, ui.month);
     let n = 0;
     for (const r of report.rows) {
-      if (!r.budget && r.fixed) {
-        state.budgets[r.category.id] = Math.ceil(r.fixed);
+      if (!r.regular && r.fixedMonthly) {
+        state.budgets[r.category.id] = Math.ceil(r.fixedMonthly);
         n++;
       }
     }
@@ -835,7 +865,7 @@
     'add-recurring': () => openRecurringSheet(),
     'edit-recurring': (el) => openRecurringSheet(state.recurring.find((r) => r.id === el.dataset.id)),
     'delete-recurring': (el) => {
-      if (!confirm('Delete this monthly cost? Past payments stay recorded.')) return;
+      if (!confirm('Delete this regular cost? Past payments stay recorded.')) return;
       state.recurring = state.recurring.filter((r) => r.id !== el.dataset.id);
       save(); closeSheet(); render();
     },
@@ -867,9 +897,10 @@
     'export-json': () => download(`family-budget-backup-${C.todayISO()}.json`, JSON.stringify(state, null, 2), 'application/json'),
     'import-json': () => document.getElementById('import-file').click(),
     reset: () => {
-      if (!confirm('Erase all wallets, entries, monthly costs and budgets on this device?')) return;
+      if (!confirm('Erase all entries, wallets, regular costs and budgets on this device? Your family setup will be loaded again.')) return;
       if (!confirm('Are you sure? Download a backup first if unsure.')) return;
       state = C.defaultState();
+      C.applySetup(state, window.FAMILY_SETUP);
       save(); render(); toast('Erased');
     },
   };
@@ -926,4 +957,10 @@
   });
 
   render();
+  if (setupAdded && state.transactions.length) toast(`Added ${setupAdded} new item${setupAdded === 1 ? '' : 's'} from your family setup`);
+
+  // Lets the installed app open without a connection.
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
 })();

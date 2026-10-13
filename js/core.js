@@ -41,7 +41,7 @@
     { id: 'import_costs', name: 'Cross-border transport & duty', icon: '📦' },
     { id: 'staff', name: 'Domestic staff & gardener', icon: '🧹' },
     { id: 'contractors', name: 'Contractors & repairs', icon: '🔧' },
-    { id: 'transport', name: 'Fuel & car', icon: '⛽' },
+    { id: 'transport', name: 'Car service, repairs & licences', icon: '🚗' },
     { id: 'school', name: 'School fees & education', icon: '🎓' },
     { id: 'medical', name: 'Medical & medical aid', icon: '🩺' },
     { id: 'insurance', name: 'Insurance', icon: '🛡️' },
@@ -116,6 +116,7 @@
       transactions: [],
       recurring: [],
       budgets: {},
+      setupApplied: [],
     };
   }
 
@@ -128,6 +129,7 @@
       if (!Array.isArray(s[key])) s[key] = base[key];
     }
     if (!s.budgets || typeof s.budgets !== 'object') s.budgets = {};
+    if (!Array.isArray(s.setupApplied)) s.setupApplied = [];
     if (s.rates.length === 0) s.rates = base.rates;
     s.version = STATE_VERSION;
     return s;
@@ -240,6 +242,37 @@
     return summary;
   }
 
+  const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  /** True when the item is paid every month (no specific months chosen). */
+  function isMonthly(item) {
+    return !Array.isArray(item.months) || item.months.length === 0 || item.months.length === 12;
+  }
+
+  function isDueInMonth(item, month) {
+    if (item.active === false) return false;
+    if (isMonthly(item)) return true;
+    return item.months.includes(Number(month.slice(5, 7)));
+  }
+
+  function frequencyLabel(item) {
+    if (isMonthly(item)) return 'Monthly';
+    const m = [...item.months].sort((a, b) => a - b);
+    const names = m.map((n) => MONTH_NAMES[n - 1]).join(', ');
+    return m.length === 1 ? `Yearly (${names})` : `${m.length}× a year (${names})`;
+  }
+
+  /** Total yearly cost of all active regular costs, in USD at today's rates. */
+  function annualFixed(state) {
+    let total = 0;
+    for (const r of state.recurring) {
+      if (r.active === false) continue;
+      const times = isMonthly(r) ? 12 : r.months.length;
+      total += recurringBase(state, r, '9999-12') * times;
+    }
+    return { total: round2(total), monthlyAverage: round2(total / 12) };
+  }
+
   /** Monthly USD amount a recurring item is expected to cost. */
   function recurringBase(state, item, month) {
     const w = walletById(state, item.walletId);
@@ -251,7 +284,7 @@
   function recurringStatus(state, month, today) {
     const now = today || todayISO();
     return state.recurring
-      .filter((r) => r.active !== false)
+      .filter((r) => isDueInMonth(r, month))
       .map((item) => {
         const day = Math.min(Math.max(1, Number(item.dayOfMonth) || 1), daysInMonth(month));
         const dueDate = `${month}-${String(day).padStart(2, '0')}`;
@@ -293,25 +326,70 @@
   /** Budget vs actual per category for `month` (all in USD). */
   function budgetReport(state, month) {
     const summary = monthSummary(state, month);
+    // fixed: everything due this month; fixedMonthly: only the every-month
+    // items; seasonal: items due only in some months (e.g. termly school
+    // fees), which are added on top of the regular budget in those months.
     const fixedByCat = {};
+    const monthlyByCat = {};
+    const seasonalByCat = {};
     for (const r of state.recurring) {
-      if (r.active === false) continue;
-      fixedByCat[r.categoryId] = round2((fixedByCat[r.categoryId] || 0) + recurringBase(state, r, month));
+      if (!isDueInMonth(r, month)) continue;
+      const v = recurringBase(state, r, month);
+      fixedByCat[r.categoryId] = round2((fixedByCat[r.categoryId] || 0) + v);
+      const bucket = isMonthly(r) ? monthlyByCat : seasonalByCat;
+      bucket[r.categoryId] = round2((bucket[r.categoryId] || 0) + v);
     }
     const rows = state.categories.map((c) => {
-      const budget = Number(state.budgets[c.id] || 0);
+      const regular = Number(state.budgets[c.id] || 0);
+      const seasonal = seasonalByCat[c.id] || 0;
+      const budget = round2(regular + seasonal);
       const fixed = fixedByCat[c.id] || 0;
       const spent = summary.byCategory[c.id] || 0;
-      return { category: c, budget, fixed, spent, remaining: round2(budget - spent) };
+      return { category: c, regular, seasonal, budget, fixed, fixedMonthly: monthlyByCat[c.id] || 0, spent, remaining: round2(budget - spent) };
     });
     // Spending in categories that were since deleted still needs to show up.
     for (const id of Object.keys(summary.byCategory)) {
       if (!state.categories.some((c) => c.id === id)) {
-        rows.push({ category: categoryById(state, id), budget: 0, fixed: 0, spent: summary.byCategory[id], remaining: -summary.byCategory[id] });
+        rows.push({ category: categoryById(state, id), regular: 0, seasonal: 0, budget: 0, fixed: 0, fixedMonthly: 0, spent: summary.byCategory[id], remaining: -summary.byCategory[id] });
       }
     }
     const totalBudget = round2(rows.reduce((a, r) => a + r.budget, 0));
     return { rows, totalBudget, totalSpent: summary.spent, summary };
+  }
+
+  /**
+   * Merge a predefined family setup (categories, regular costs, budgets)
+   * into the state. Each item is applied once, keyed by id, so items the
+   * family later edits or deletes are left alone, while new items added to
+   * the setup appear on the next load.
+   */
+  function applySetup(state, setup) {
+    if (!setup) return 0;
+    const done = new Set(state.setupApplied || []);
+    let added = 0;
+    for (const c of setup.categories || []) {
+      const key = 'category:' + c.id;
+      if (done.has(key)) continue;
+      if (!state.categories.some((x) => x.id === c.id)) state.categories.push({ ...c });
+      done.add(key);
+      added++;
+    }
+    for (const r of setup.recurring || []) {
+      const key = 'recurring:' + r.id;
+      if (done.has(key)) continue;
+      if (!state.recurring.some((x) => x.id === r.id)) state.recurring.push({ active: true, ...r });
+      done.add(key);
+      added++;
+    }
+    for (const [cat, amount] of Object.entries(setup.budgets || {})) {
+      const key = 'budget:' + cat;
+      if (done.has(key)) continue;
+      if (!state.budgets[cat]) state.budgets[cat] = amount;
+      done.add(key);
+      added++;
+    }
+    state.setupApplied = [...done];
+    return added;
   }
 
   function formatMoney(amount, currency, opts) {
@@ -381,6 +459,12 @@
     monthSummary,
     recurringStatus,
     recurringBase,
+    MONTH_NAMES,
+    isMonthly,
+    isDueInMonth,
+    frequencyLabel,
+    annualFixed,
+    applySetup,
     cashNeeds,
     budgetReport,
     formatMoney,

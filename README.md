@@ -19,12 +19,14 @@ really spending each month.
 - **Move / exchange** – drawing USD cash from a card, or buying rand with
   pounds before a trip to South Africa. It isn't counted as spending, but it
   updates both wallets and shows the rate you actually got.
-- **Monthly costs** – regular bills (staff wages, school fees, rent, DStv,
-  Netflix) with the wallet they're paid from and the day they're due. Tap
-  **Pay** to record one. The overview shows what is still due this month
+- **Regular costs** – bills paid every month (staff wages, WiFi, DStv) or only
+  in some months (termly school fees, swimming), with the wallet they're paid
+  from and the day they're due. Tap **Pay** to record one. A yearly view shows
+  the average to put aside each month. The overview shows what is still due this month
   **per wallet** and how much more cash you need to have on hand.
-- **Budget** – a monthly USD amount per category, with what your fixed costs
-  already add up to and what you've spent.
+- **Budget** – a monthly USD amount per category (with a per-week figure),
+  what your regular costs already add up to and what you've spent. Termly
+  costs are added to the budget in the months they're due.
 - **Overview** – total spent in USD, budget left, spending split by wallet
   and currency, cash vs card, and spending by category.
 - **Export** – CSV per month or for everything; JSON backup and restore.
@@ -33,12 +35,26 @@ Categories are set up for local life (generator/solar, domestic staff,
 contractors, South Africa shopping, cross-border transport & duty…) and
 can be edited in Settings.
 
+## Our family setup
+
+`js/family-setup.js` holds our regular costs and budgets. They load into the
+app automatically. Each entry is added once: changes made in the app are
+kept, and new entries added to the file appear the next time the app opens.
+
 ## Running it
 
 It's plain HTML/JS with no build step. Open `index.html` in a browser, or
-serve the folder (`npm start`, then visit http://localhost:8080). To use it on
-your phones, host the folder somewhere (e.g. GitHub Pages) and use "Add to
-Home screen".
+serve the folder (`npm start`, then visit http://localhost:8080).
+
+**On your phones (GitHub Pages):**
+
+1. On GitHub, open the repository → **Settings** → **Pages**.
+2. Under *Build and deployment*, set **Source** to *Deploy from a branch*,
+   pick the branch the app is on and the **/ (root)** folder, then **Save**.
+3. After a minute or two the app is live at
+   https://sarahtomo91-eng.github.io/budgeting-app/
+4. Open that link on each phone and choose **Add to Home screen** (Safari:
+   Share button; Chrome: ⋮ menu). Once opened, it also works offline.
 
 Data is stored **only in the browser on that device** (localStorage). Use
 *Settings → Download backup* regularly. A backup can be restored on another

@@ -119,3 +119,54 @@ test('formatMoney and CSV export', () => {
   assert.match(csv[1], /"Bread, ""fresh"""/);
   assert.match(csv[1], /,1,18,/);
 });
+
+test('termly costs are only due in their months and add to that month\'s budget', () => {
+  const s = freshState();
+  s.budgets = { school: 0, staff: 1200 };
+  s.recurring = [
+    { id: 'fees', name: 'School fees', amount: 1800, walletId: 'usd_card', categoryId: 'school', dayOfMonth: 5, months: [1, 5, 9] },
+    { id: 'wages', name: 'Wages', amount: 1200, walletId: 'usd_cash', categoryId: 'staff', dayOfMonth: 25 },
+  ];
+  assert.deepEqual(C.recurringStatus(s, '2026-05').map((x) => x.item.id), ['fees', 'wages']);
+  assert.deepEqual(C.recurringStatus(s, '2026-06').map((x) => x.item.id), ['wages']);
+
+  const may = C.budgetReport(s, '2026-05');
+  const school = may.rows.find((r) => r.category.id === 'school');
+  assert.equal(school.seasonal, 1800);
+  assert.equal(school.budget, 1800);
+  assert.equal(school.fixedMonthly, 0);
+  assert.equal(may.totalBudget, 3000);
+  assert.equal(C.budgetReport(s, '2026-06').totalBudget, 1200);
+
+  assert.deepEqual(C.annualFixed(s), { total: 1800 * 3 + 1200 * 12, monthlyAverage: 1650 });
+  assert.equal(C.frequencyLabel(s.recurring[0]), '3× a year (Jan, May, Sep)');
+  assert.equal(C.frequencyLabel(s.recurring[1]), 'Monthly');
+});
+
+test('family setup is applied once and respects later edits and deletions', () => {
+  const setup = require('../js/family-setup.js');
+  const s = C.defaultState();
+  const added = C.applySetup(s, setup);
+  assert.ok(added > 0);
+  assert.ok(s.recurring.some((r) => r.id === 'staff_wages' && r.dayOfMonth === 25));
+  assert.equal(s.budgets.groceries, Math.round(350 * 52 / 12));
+  for (const r of s.recurring) {
+    assert.ok(C.walletById(s, r.walletId), `${r.id} wallet exists`);
+    assert.ok(s.categories.some((c) => c.id === r.categoryId), `${r.id} category exists`);
+  }
+  for (const cat of Object.keys(setup.budgets)) {
+    assert.ok(s.categories.some((c) => c.id === cat), `budget ${cat} category exists`);
+  }
+
+  // Family deletes DStv and changes wages; reloading must not undo that.
+  s.recurring = s.recurring.filter((r) => r.id !== 'dstv');
+  s.recurring.find((r) => r.id === 'staff_wages').amount = 1300;
+  assert.equal(C.applySetup(s, setup), 0);
+  assert.ok(!s.recurring.some((r) => r.id === 'dstv'));
+  assert.equal(s.recurring.find((r) => r.id === 'staff_wages').amount, 1300);
+
+  // A new item added to the setup later shows up.
+  const later = { ...setup, recurring: [...setup.recurring, { id: 'new_one', name: 'New', amount: 5, walletId: 'usd_cash', categoryId: 'other', dayOfMonth: 1 }] };
+  assert.equal(C.applySetup(s, later), 1);
+  assert.ok(s.recurring.some((r) => r.id === 'new_one'));
+});
