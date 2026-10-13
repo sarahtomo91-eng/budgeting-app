@@ -132,7 +132,11 @@
       state.transactions = raw.txns;
       state.rates = raw.rates.length ? raw.rates : defaults.rates;
       state.budgets = {};
-      for (const b of raw.budgets) if (b.amount > 0) state.budgets[b.id] = b.amount;
+      state.funds = {};
+      for (const b of raw.budgets) {
+        if (b.amount > 0) state.budgets[b.id] = b.amount;
+        if (b.fundSince) state.funds[b.id] = b.fundSince; // unspent money carries over
+      }
     }
 
     function plain(snapDocs) {
@@ -205,7 +209,13 @@
       deleteRate: (date) => del('rates', date),
       setBudgets: (patch) => {
         for (const [cat, v] of Object.entries(patch)) {
-          write(`budgets/${cat}`, () => (v > 0 ? db.doc(`budgets/${cat}`).set({ amount: v }) : db.doc(`budgets/${cat}`).delete()));
+          write(`budgets/${cat}`, () => {
+            const ref = db.doc(`budgets/${cat}`);
+            if (!(v > 0)) return ref.delete();
+            // Keep other fields (e.g. fundSince) when only the amount changes.
+            const exists = raw.budgets.some((b) => b.id === cat);
+            return exists ? ref.update({ amount: v }) : ref.set({ amount: v });
+          });
         }
       },
       replaceAll: null,

@@ -197,3 +197,21 @@ test('a late payment marks the earlier month as paid', () => {
   assert.equal(C.monthSummary(s, '2026-10').spent, 130, 'spending counts when the cash left');
   assert.equal(C.monthSummary(s, '2026-09').spent, 0);
 });
+
+test('a fund carries unspent budget into later months', () => {
+  const s = freshState();
+  s.budgets = { travel: 500 };
+  s.funds = { travel: '2026-10' };
+  s.transactions = [
+    { type: 'expense', amount: 350, walletId: 'usd_cash', categoryId: 'travel', date: '2026-10-09' },
+    { type: 'expense', amount: 900, walletId: 'usd_cash', categoryId: 'travel', date: '2026-12-20' },
+  ];
+  const row = (m) => C.budgetReport(s, m).rows.find((r) => r.category.id === 'travel');
+  assert.equal(row('2026-10').budget, 500);
+  assert.equal(row('2026-10').remaining, 150);
+  assert.equal(row('2026-11').carried, 150);
+  assert.equal(row('2026-12').carried, 650);
+  assert.equal(row('2026-12').remaining, 250);
+  assert.equal(row('2027-01').carried, 250);
+  assert.equal(row('2026-09').carried, 0, 'nothing before the fund started');
+});

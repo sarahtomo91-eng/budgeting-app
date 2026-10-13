@@ -116,6 +116,7 @@
       transactions: [],
       recurring: [],
       budgets: {},
+      funds: {}, // categoryId -> month the fund started ('YYYY-MM')
       setupApplied: [],
     };
   }
@@ -130,6 +131,7 @@
     }
     if (!s.budgets || typeof s.budgets !== 'object') s.budgets = {};
     if (!Array.isArray(s.setupApplied)) s.setupApplied = [];
+    if (!s.funds || typeof s.funds !== 'object') s.funds = {};
     if (s.rates.length === 0) s.rates = base.rates;
     s.version = STATE_VERSION;
     return s;
@@ -325,33 +327,55 @@
   }
 
   /** Budget vs actual per category for `month` (all in USD). */
-  function budgetReport(state, month) {
-    const summary = monthSummary(state, month);
-    // fixed: everything due this month; fixedMonthly: only the every-month
-    // items; seasonal: items due only in some months (e.g. termly school
-    // fees), which are added on top of the regular budget in those months.
-    const fixedByCat = {};
-    const monthlyByCat = {};
-    const seasonalByCat = {};
+  // fixed: everything due this month; monthly: only the every-month items;
+  // seasonal: items due only in some months (e.g. termly school fees),
+  // which are added on top of the regular budget in those months.
+  function dueByCategory(state, month) {
+    const due = { fixed: {}, monthly: {}, seasonal: {} };
     for (const r of state.recurring) {
       if (!isDueInMonth(r, month)) continue;
       const v = recurringBase(state, r, month);
-      fixedByCat[r.categoryId] = round2((fixedByCat[r.categoryId] || 0) + v);
-      const bucket = isMonthly(r) ? monthlyByCat : seasonalByCat;
+      due.fixed[r.categoryId] = round2((due.fixed[r.categoryId] || 0) + v);
+      const bucket = isMonthly(r) ? due.monthly : due.seasonal;
       bucket[r.categoryId] = round2((bucket[r.categoryId] || 0) + v);
     }
+    return due;
+  }
+
+  /**
+   * For a category kept as a fund (e.g. a holiday fund): what is carried
+   * into `month` from the months since the fund started – each month's
+   * budget minus what was spent. Negative when earlier months overspent.
+   */
+  function fundCarried(state, categoryId, month) {
+    const since = state.funds && state.funds[categoryId];
+    if (!since || month <= since) return 0;
+    const regular = Number(state.budgets[categoryId] || 0);
+    let carried = 0;
+    for (let m = since; m < month; m = shiftMonth(m, 1)) {
+      const seasonal = dueByCategory(state, m).seasonal[categoryId] || 0;
+      carried += regular + seasonal - (monthSummary(state, m).byCategory[categoryId] || 0);
+    }
+    return round2(carried);
+  }
+
+  function budgetReport(state, month) {
+    const summary = monthSummary(state, month);
+    const due = dueByCategory(state, month);
     const rows = state.categories.map((c) => {
       const regular = Number(state.budgets[c.id] || 0);
-      const seasonal = seasonalByCat[c.id] || 0;
-      const budget = round2(regular + seasonal);
-      const fixed = fixedByCat[c.id] || 0;
+      const seasonal = due.seasonal[c.id] || 0;
+      const isFund = Boolean(state.funds && state.funds[c.id]);
+      const carried = isFund ? fundCarried(state, c.id, month) : 0;
+      const budget = round2(regular + seasonal + carried);
+      const fixed = due.fixed[c.id] || 0;
       const spent = summary.byCategory[c.id] || 0;
-      return { category: c, regular, seasonal, budget, fixed, fixedMonthly: monthlyByCat[c.id] || 0, spent, remaining: round2(budget - spent) };
+      return { category: c, regular, seasonal, carried, isFund, budget, fixed, fixedMonthly: due.monthly[c.id] || 0, spent, remaining: round2(budget - spent) };
     });
     // Spending in categories that were since deleted still needs to show up.
     for (const id of Object.keys(summary.byCategory)) {
       if (!state.categories.some((c) => c.id === id)) {
-        rows.push({ category: categoryById(state, id), regular: 0, seasonal: 0, budget: 0, fixed: 0, fixedMonthly: 0, spent: summary.byCategory[id], remaining: -summary.byCategory[id] });
+        rows.push({ category: categoryById(state, id), regular: 0, seasonal: 0, carried: 0, isFund: false, budget: 0, fixed: 0, fixedMonthly: 0, spent: summary.byCategory[id], remaining: -summary.byCategory[id] });
       }
     }
     const totalBudget = round2(rows.reduce((a, r) => a + r.budget, 0));
@@ -484,6 +508,7 @@
     applySetup,
     cashNeeds,
     budgetReport,
+    fundCarried,
     formatMoney,
     toCSV,
   };

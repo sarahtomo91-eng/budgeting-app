@@ -447,6 +447,7 @@
       const notes = [];
       if (r.regular) notes.push(`≈ ${usd(r.regular * 12 / 52, { whole: true })}/week`);
       if (r.seasonal) notes.push(`+ ${usd(r.seasonal, { whole: true })} due this month`);
+      if (r.isFund) notes.push(r.carried >= 0 ? `fund: + ${usd(r.carried, { whole: true })} saved up` : `fund: − ${usd(-r.carried, { whole: true })} overspent earlier`);
       html += `<tr><td>${esc(r.category.icon)} ${esc(r.category.name)}${notes.length ? `<div class="small muted">${notes.join(' · ')}</div>` : ''}${r.budget ? pctBar(r.spent, r.budget) : ''}</td>
         <td class="num muted">${r.fixed ? usd(r.fixed, { whole: true }) : ''}</td>
         <td class="num"><input class="budget-input" inputmode="decimal" data-budget="${esc(r.category.id)}" value="${r.regular || ''}" placeholder="0" aria-label="Budget for ${esc(r.category.name)}"></td>
