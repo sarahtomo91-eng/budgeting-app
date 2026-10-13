@@ -471,7 +471,8 @@
       const r = rates[code];
       html += `<div class="field"><label for="rate-${code}">1 USD = ? ${code} <span class="muted">(${esc(C.CURRENCIES[code].name)})</span></label>
         <input id="rate-${code}" name="${code}" inputmode="decimal" value="${r || ''}" data-rate-input="${code}">
-        <div class="hint" data-rate-hint="${code}">${r ? `1 ${code} = ${usd(1 / r)}` : ''}</div></div>`;
+        <div class="hint"><span data-rate-hint="${code}">${r ? `1 ${code} = ${usd(1 / r)}` : ''}</span>
+          <a class="xe-link" href="https://www.xe.com/currencyconverter/convert/?Amount=1&amp;From=USD&amp;To=${code}" target="_blank" rel="noopener">Check on XE ↗</a></div></div>`;
     }
     html += `<div class="btn-row"><button class="btn primary" type="submit">Save rates</button>
       ${store.shared ? '' : '<button class="btn" type="button" data-action="fetch-rates">Fetch GBP &amp; ZAR online</button>'}</div>

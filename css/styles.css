@@ -302,3 +302,4 @@ table.simple td.num, table.simple th.num { text-align: right; }
 .sheet.confirm { max-width: 420px; margin: auto; border-radius: 18px; }
 .confirm-msg { margin: 0 0 8px; font-size: 1rem; }
 .btn.primary.danger-fill { background: var(--danger); border-color: var(--danger); }
+.xe-link { float: right; color: var(--brand); font-weight: 600; text-decoration: none; }
