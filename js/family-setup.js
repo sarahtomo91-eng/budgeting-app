@@ -36,6 +36,15 @@
       { id: 'dstv', name: 'DStv', amount: 100, walletId: 'usd_card', categoryId: 'subscriptions', dayOfMonth: 1 },
       { id: 'gym', name: 'Gym membership', amount: 120, walletId: 'usd_card', categoryId: 'fitness', dayOfMonth: 1 },
 
+      // Subscriptions on the GBP card (typical UK prices – adjust in the app)
+      { id: 'spotify', name: 'Spotify', amount: 12.99, walletId: 'gbp_card', categoryId: 'subscriptions', dayOfMonth: 1 },
+      { id: 'expressvpn', name: 'ExpressVPN', amount: 9.99, walletId: 'gbp_card', categoryId: 'subscriptions', dayOfMonth: 1 },
+      { id: 'chatgpt', name: 'ChatGPT', amount: 20, walletId: 'gbp_card', categoryId: 'subscriptions', dayOfMonth: 1 },
+      { id: 'netflix', name: 'Netflix', amount: 12.99, walletId: 'gbp_card', categoryId: 'subscriptions', dayOfMonth: 1 },
+      { id: 'apple_tv', name: 'Apple TV+', amount: 9.99, walletId: 'gbp_card', categoryId: 'subscriptions', dayOfMonth: 1 },
+      { id: 'amazon_prime', name: 'Amazon Prime', amount: 8.99, walletId: 'gbp_card', categoryId: 'subscriptions', dayOfMonth: 1 },
+      { id: 'canva', name: 'Canva', amount: 10.99, walletId: 'gbp_card', categoryId: 'subscriptions', dayOfMonth: 1 },
+
       { id: 'school_hugo', name: 'School fees – Hugo', amount: 1800, walletId: 'usd_cash', categoryId: 'school', dayOfMonth: 5, months: TERMS },
       { id: 'swim_hugo', name: 'Swimming – Hugo', amount: 120, walletId: 'usd_cash', categoryId: 'kids', dayOfMonth: 5, months: TERMS },
       { id: 'swim_toby', name: 'Swimming – Toby', amount: 120, walletId: 'usd_cash', categoryId: 'kids', dayOfMonth: 5, months: TERMS },
@@ -46,7 +55,7 @@
       // Every-month bills (match the regular costs above)
       comms: 220,
       staff: 1200,
-      subscriptions: 100,
+      subscriptions: 215, // DStv $100 + ~£86 of GBP subscriptions
       fitness: 120,
       // Day-to-day spending
       groceries: Math.round(350 * WEEKS_PER_MONTH), // ~$350 a week
