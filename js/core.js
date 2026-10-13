@@ -38,7 +38,7 @@
     { id: 'power_backup', name: 'Generator, solar & gas', icon: '🔋' },
     { id: 'groceries', name: 'Groceries & household', icon: '🛒' },
     { id: 'sa_imports', name: 'South Africa shopping', icon: '🇿🇦' },
-    { id: 'import_costs', name: 'Cross-border transport & duty', icon: '📦' },
+    { id: 'import_costs', name: 'Import duty & shipping', icon: '📦' },
     { id: 'staff', name: 'Domestic staff & gardener', icon: '🧹' },
     { id: 'contractors', name: 'Contractors & repairs', icon: '🔧' },
     { id: 'transport', name: 'Car service, repairs & licences', icon: '🚗' },
@@ -385,6 +385,22 @@
       const key = 'budget:' + cat;
       if (done.has(key)) continue;
       if (!state.budgets[cat]) state.budgets[cat] = amount;
+      done.add(key);
+      added++;
+    }
+    // One-off corrections to items that may already be on the phone,
+    // e.g. changing how something is paid.
+    for (const change of setup.changes || []) {
+      const key = 'change:' + change.id;
+      if (done.has(key)) continue;
+      for (const [id, patch] of Object.entries(change.recurring || {})) {
+        const r = state.recurring.find((x) => x.id === id);
+        if (r) Object.assign(r, patch);
+      }
+      for (const [id, patch] of Object.entries(change.categories || {})) {
+        const c = state.categories.find((x) => x.id === id);
+        if (c) Object.assign(c, patch);
+      }
       done.add(key);
       added++;
     }

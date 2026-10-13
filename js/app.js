@@ -582,6 +582,17 @@
         if (to && toCur !== cur && amount && toAmount) hint.textContent = `You got 1 ${cur} = ${(toAmount / amount).toLocaleString('en-GB', { maximumFractionDigits: 4 })} ${toCur}. Adjust “Amount received” to what you actually got.`;
       }
     };
+    // Picking a category selects the wallet it's usually paid with, unless
+    // a wallet has already been chosen by hand.
+    let walletTouched = Boolean(existing || (prefill && prefill.walletId));
+    form.addEventListener('change', (e) => {
+      if (e.target.name === 'walletId') walletTouched = true;
+      if ((e.target.name === 'expCat' || e.target.name === 'incCat') && !walletTouched) {
+        const cat = C.categoryById(state, e.target.value);
+        const radio = cat.walletId && form.querySelector(`input[name="walletId"][value="${CSS.escape(cat.walletId)}"]`);
+        if (radio) radio.checked = true;
+      }
+    });
     form.addEventListener('input', (e) => {
       if (e.target.name === 'toAmount') toAmountTouched = true;
       update();
@@ -725,7 +736,10 @@
     const c = existing || { icon: '📌' };
     const body = `<div class="grid2" style="grid-template-columns:80px 1fr">
       <div class="field"><label for="ci">Icon</label><input id="ci" name="icon" value="${esc(c.icon)}" maxlength="4"></div>
-      <div class="field"><label for="cn">Name</label><input id="cn" name="name" value="${esc(c.name || '')}"></div></div>`;
+      <div class="field"><label for="cn">Name</label><input id="cn" name="name" value="${esc(c.name || '')}"></div></div>
+      <div class="field"><label for="cw">Usually paid with</label><select id="cw" name="walletId"><option value="">— no default —</option>${activeWallets()
+        .map((w) => `<option value="${esc(w.id)}" ${w.id === c.walletId ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</select>
+        <div class="hint">Picking this category when adding a payment selects this wallet for you.</div></div>`;
     const used = existing && (state.transactions.some((t) => t.categoryId === existing.id) || state.recurring.some((r) => r.categoryId === existing.id));
     const footer = existing && !used ? `<button class="btn danger" type="button" data-action="delete-category" data-id="${esc(existing.id)}">Delete</button>` : '';
     openSheet(existing ? 'Edit category' : 'New category', body, (fd) => {
@@ -734,6 +748,8 @@
       const item = existing || { id: C.uid() };
       item.name = name;
       item.icon = String(fd.get('icon') || '📌').trim() || '📌';
+      if (fd.get('walletId')) item.walletId = fd.get('walletId');
+      else delete item.walletId;
       if (!existing) state.categories.push(item);
       save();
       return null;

@@ -15,7 +15,8 @@ really spending each month.
   changes last month's totals. If the bank charged a different rate, type the
   actual USD value on that payment. GBP and ZAR can be fetched online.
 - **Add a payment (+)** – amount, wallet, category. The USD equivalent shows as
-  you type. The last wallet and category used are remembered.
+  you type. Each category can have a usual wallet (Settings → Categories), so
+  picking “Groceries” selects the USD card and “Water” selects USD cash.
 - **Move / exchange** – drawing USD cash from a card, or buying rand with
   pounds before a trip to South Africa. It isn't counted as spending, but it
   updates both wallets and shows the rate you actually got.

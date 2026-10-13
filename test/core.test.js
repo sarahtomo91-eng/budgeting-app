@@ -170,3 +170,21 @@ test('family setup is applied once and respects later edits and deletions', () =
   assert.equal(C.applySetup(s, later), 1);
   assert.ok(s.recurring.some((r) => r.id === 'new_one'));
 });
+
+test('setup changes patch phones that already had the old setup, once', () => {
+  const setup = require('../js/family-setup.js');
+  const s = C.defaultState();
+  // Simulate a phone that loaded the earlier setup (fees on the card, no changes).
+  C.applySetup(s, { ...setup, changes: [], recurring: setup.recurring.map((r) => ({ ...r, walletId: 'usd_card' })) });
+  assert.equal(s.recurring.find((r) => r.id === 'school_hugo').walletId, 'usd_card');
+
+  C.applySetup(s, setup);
+  assert.equal(s.recurring.find((r) => r.id === 'school_hugo').walletId, 'usd_cash');
+  assert.equal(C.categoryById(s, 'groceries').walletId, 'usd_card');
+  assert.equal(C.categoryById(s, 'runner_uk').walletId, 'gbp_card');
+
+  // A later in-app edit is not overwritten on the next load.
+  s.recurring.find((r) => r.id === 'school_hugo').walletId = 'usd_card';
+  assert.equal(C.applySetup(s, setup), 0);
+  assert.equal(s.recurring.find((r) => r.id === 'school_hugo').walletId, 'usd_card');
+});
