@@ -188,3 +188,12 @@ test('setup changes patch phones that already had the old setup, once', () => {
   assert.equal(C.applySetup(s, setup), 0);
   assert.equal(s.recurring.find((r) => r.id === 'school_hugo').walletId, 'usd_card');
 });
+
+test('a late payment marks the earlier month as paid', () => {
+  const s = freshState();
+  s.recurring = [{ id: 'js', name: 'Jumpstart', amount: 130, walletId: 'usd_cash', categoryId: 'kids', dayOfMonth: 5, months: [1, 5, 9] }];
+  s.transactions = [{ id: 't', type: 'expense', amount: 130, walletId: 'usd_cash', categoryId: 'kids', date: '2026-10-13', recurringId: 'js', forMonth: '2026-09' }];
+  assert.equal(C.recurringStatus(s, '2026-09', '2026-10-13')[0].paid, true);
+  assert.equal(C.monthSummary(s, '2026-10').spent, 130, 'spending counts when the cash left');
+  assert.equal(C.monthSummary(s, '2026-09').spent, 0);
+});

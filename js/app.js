@@ -379,7 +379,7 @@
     const sign = t.type === 'income' ? '+' : '';
     return `<li class="clickable" data-action="edit-txn" data-id="${esc(t.id)}"><div class="icon">${esc(cat.icon)}</div><div class="grow">
       <div class="title">${esc(t.note || cat.name)}</div>
-      <div class="small muted">${t.note ? esc(cat.name) + ' · ' : ''}${walletPill(w)}${t.recurringId ? ' <span class="pill">regular</span>' : ''}${firstName(t.createdBy) ? ' · ' + esc(firstName(t.createdBy)) : ''}</div></div>
+      <div class="small muted">${t.note ? esc(cat.name) + ' · ' : ''}${walletPill(w)}${t.recurringId ? ' <span class="pill">regular</span>' : ''}${t.forMonth && t.forMonth !== C.monthKey(t.date) ? ` <span class="pill">for ${esc(monthLabel(t.forMonth).split(' ')[0])}</span>` : ''}${firstName(t.createdBy) ? ' · ' + esc(firstName(t.createdBy)) : ''}</div></div>
       <div class="right num"><div class="${t.type === 'income' ? 'ok' : ''}"><b>${sign}${money(t.amount, cur)}</b></div>
       ${cur !== 'USD' ? `<div class="small muted">≈ ${usd(base)}</div>` : ''}</div></li>`;
   }
@@ -594,7 +594,8 @@
           <input id="usdv" name="usdValue" inputmode="decimal" value="${usdOverride}" placeholder="Leave blank to use the day's rate">
           <div class="hint">If your statement shows a different USD amount (bank rate, fees), enter it here.</div></div>
       </details>
-      <input type="hidden" name="recurringId" value="${esc(t.recurringId || '')}">`;
+      <input type="hidden" name="recurringId" value="${esc(t.recurringId || '')}">
+      <input type="hidden" name="forMonth" value="${esc(t.forMonth || '')}">`;
 
     const footer = existing ? `<button class="btn danger" type="button" data-action="delete-txn" data-id="${esc(existing.id)}">Delete</button>` : '';
     const by = existing && firstName(existing.createdBy);
@@ -693,6 +694,10 @@
       const rid = fd.get('recurringId');
       if (rid && type === 'expense') t.recurringId = rid;
       else delete t.recurringId;
+      // Paying a bill late (or early): remember which month's bill it was.
+      const forMonth = fd.get('forMonth');
+      if (t.recurringId && forMonth && forMonth !== C.monthKey(date)) t.forMonth = forMonth;
+      else delete t.forMonth;
       if (type === 'expense') prefs.lastCategory = cat;
     }
     prefs.lastWallet = walletId;
@@ -908,9 +913,13 @@
       if (!r) return;
       const status = C.recurringStatus(state, ui.month).find((s) => s.item.id === r.id);
       const today = C.todayISO();
+      // A past month's bill being paid now is a late payment: dated today,
+      // counted against the month it was for.
+      const late = ui.month < C.monthKey(today);
       openTxnSheet(null, {
         type: 'expense', amount: r.amount, walletId: r.walletId, categoryId: r.categoryId, note: r.name, recurringId: r.id,
-        date: C.monthKey(today) === ui.month ? today : status ? status.dueDate : defaultDateForMonth(),
+        forMonth: ui.month,
+        date: C.monthKey(today) === ui.month || late ? today : status ? status.dueDate : defaultDateForMonth(),
       });
     },
     'add-recurring': () => openRecurringSheet(),

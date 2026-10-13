@@ -289,7 +289,8 @@
         const day = Math.min(Math.max(1, Number(item.dayOfMonth) || 1), daysInMonth(month));
         const dueDate = `${month}-${String(day).padStart(2, '0')}`;
         const payments = state.transactions.filter(
-          (t) => t.recurringId === item.id && monthKey(t.date) === month
+          // forMonth marks a late (or early) payment for another month's bill.
+          (t) => t.recurringId === item.id && (t.forMonth || monthKey(t.date)) === month
         );
         const paid = payments.length > 0;
         return {
