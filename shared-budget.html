@@ -1,0 +1,32 @@
+<title>Family Budget</title>
+<link rel="stylesheet" href="css/styles.css">
+<!-- Shared version of the app, published as a Claude artifact. The page
+     skeleton (doctype, head, body) is added when it is published. Data
+     lives in the artifact's shared database; see js/store.js. -->
+<header class="topbar">
+  <h1>Family Budget</h1>
+  <div class="month-picker">
+    <button type="button" data-action="month-prev" aria-label="Previous month">‹</button>
+    <span id="month-label"></span>
+    <button type="button" data-action="month-next" aria-label="Next month">›</button>
+  </div>
+</header>
+
+<main id="view" tabindex="-1"></main>
+
+<button type="button" class="fab" data-action="open-add" aria-label="Add a payment">+</button>
+
+<nav class="tabs" aria-label="Sections">
+  <button type="button" data-tab="home"><span>🏠</span>Overview</button>
+  <button type="button" data-tab="txns"><span>🧾</span>Spending</button>
+  <button type="button" data-tab="fixed"><span>📅</span>Regular</button>
+  <button type="button" data-tab="budget"><span>🎯</span>Budget</button>
+  <button type="button" data-tab="settings"><span>⚙️</span>Settings</button>
+</nav>
+
+<dialog id="sheet" class="sheet"></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="js/core.js"></script>
+<script src="js/store.js"></script>
+<script src="js/app.js"></script>

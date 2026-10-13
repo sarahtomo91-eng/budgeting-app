@@ -1,39 +1,26 @@
-/* Family Budget – UI. Data lives in this browser's localStorage. */
+/*
+ * Family Budget – UI. Data is kept by a store (js/store.js): this browser
+ * only, or, when opened inside Claude, a database shared with the family.
+ */
 (function () {
   'use strict';
 
   const C = window.BudgetCore;
-  const STORAGE_KEY = 'family-budget-v1';
   const PREFS_KEY = 'family-budget-prefs';
   const RATE_STALE_DAYS = 14;
 
-  let state = load();
-  const setupAdded = C.applySetup(state, window.FAMILY_SETUP);
-  if (setupAdded) save();
+  let store = null;
+  let state = null;
+  let user = null; // Claude `user` capability, when shared
+  let downloads = null; // Claude `downloads` capability, when shared
+  const people = {}; // id -> first name, for "added by"
   const prefs = loadPrefs();
   const ui = { tab: 'home', month: C.monthKey(C.todayISO()), filter: 'all' };
 
   const $view = document.getElementById('view');
   const $sheet = document.getElementById('sheet');
 
-  // ---------- storage ----------
-
-  function load() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? C.normalizeState(JSON.parse(raw)) : C.defaultState();
-    } catch (e) {
-      return C.defaultState();
-    }
-  }
-
-  function save() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) {
-      toast('Could not save – browser storage is full or blocked');
-    }
-  }
+  // ---------- per-device preferences ----------
 
   function loadPrefs() {
     try {
@@ -122,6 +109,14 @@
   }
 
   function download(filename, text, type) {
+    if (store && store.shared) {
+      if (!downloads) return toast('Downloads are not available here');
+      downloads.save({ filename, data: text }).then(
+        () => toast('Saved'),
+        (err) => { if (!err || err.code !== 'declined') toast('Could not save the file'); }
+      );
+      return;
+    }
     const blob = new Blob([text], { type });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -134,13 +129,58 @@
     }, 0);
   }
 
+  // In-page confirmation (browser confirm() pop-ups don't work everywhere).
+  function askConfirm(message, okLabel) {
+    let dlg = document.getElementById('confirm');
+    if (!dlg) {
+      dlg = document.createElement('dialog');
+      dlg.id = 'confirm';
+      dlg.className = 'sheet confirm';
+      document.body.appendChild(dlg);
+    }
+    dlg.innerHTML = `<form method="dialog"><p class="confirm-msg"></p>
+      <div class="btn-row"><button class="btn" value="no" type="submit" style="flex:1">Cancel</button>
+      <button class="btn primary danger-fill" value="yes" type="submit" style="flex:1">${esc(okLabel || 'Delete')}</button></div></form>`;
+    dlg.querySelector('.confirm-msg').textContent = message;
+    return new Promise((resolve) => {
+      dlg.addEventListener('close', () => resolve(dlg.returnValue === 'yes'), { once: true });
+      dlg.showModal();
+    });
+  }
+
+  function firstName(id) {
+    if (!id) return '';
+    if (store.meId && id === store.meId) return 'you';
+    return people[id] || '';
+  }
+
+  // Look up names of whoever added entries; re-render once if any changed.
+  function resolvePeople() {
+    if (!user || !store.shared) return;
+    const ids = [...new Set(state.transactions.map((t) => t.createdBy).filter(Boolean))];
+    if (!ids.length) return;
+    user.profiles(ids).then((ps) => {
+      let changed = false;
+      for (const id of ids) {
+        const n = ((ps[id] && ps[id].name) || '').split(' ')[0];
+        if (n && people[id] !== n) { people[id] = n; changed = true; }
+      }
+      if (changed) render();
+    });
+  }
+
   // ---------- rendering ----------
 
   function render() {
+    if (!store || !store.ready) {
+      $view.innerHTML = `<div class="empty">Loading your budget…</div>`;
+      return;
+    }
     document.getElementById('month-label').textContent = monthLabel(ui.month);
     document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === ui.tab));
     const views = { home: viewHome, txns: viewTransactions, fixed: viewFixed, budget: viewBudget, settings: viewSettings };
     $view.innerHTML = (views[ui.tab] || viewHome)();
+    resolvePeople();
   }
 
   function rateWarning() {
@@ -339,7 +379,7 @@
     const sign = t.type === 'income' ? '+' : '';
     return `<li class="clickable" data-action="edit-txn" data-id="${esc(t.id)}"><div class="icon">${esc(cat.icon)}</div><div class="grow">
       <div class="title">${esc(t.note || cat.name)}</div>
-      <div class="small muted">${t.note ? esc(cat.name) + ' · ' : ''}${walletPill(w)}${t.recurringId ? ' <span class="pill">monthly</span>' : ''}</div></div>
+      <div class="small muted">${t.note ? esc(cat.name) + ' · ' : ''}${walletPill(w)}${t.recurringId ? ' <span class="pill">regular</span>' : ''}${firstName(t.createdBy) ? ' · ' + esc(firstName(t.createdBy)) : ''}</div></div>
       <div class="right num"><div class="${t.type === 'income' ? 'ok' : ''}"><b>${sign}${money(t.amount, cur)}</b></div>
       ${cur !== 'USD' ? `<div class="small muted">≈ ${usd(base)}</div>` : ''}</div></li>`;
   }
@@ -434,7 +474,7 @@
         <div class="hint" data-rate-hint="${code}">${r ? `1 ${code} = ${usd(1 / r)}` : ''}</div></div>`;
     }
     html += `<div class="btn-row"><button class="btn primary" type="submit">Save rates</button>
-      <button class="btn" type="button" data-action="fetch-rates">Fetch GBP &amp; ZAR online</button></div>
+      ${store.shared ? '' : '<button class="btn" type="button" data-action="fetch-rates">Fetch GBP &amp; ZAR online</button>'}</div>
       <div class="hint small muted" style="margin-top:8px">Older payments keep using the rate that applied on their date. For a payment where the bank charged a different rate, enter the actual USD value on that payment.</div>
       </form>`;
     const history = [...state.rates].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 8);
@@ -462,15 +502,24 @@
       .map((c) => `<button class="btn small" data-action="edit-category" data-id="${esc(c.id)}">${esc(c.icon)} ${esc(c.name)}</button>`)
       .join('')}</div><div class="btn-row"><button class="btn" data-action="add-category">+ Add category</button></div></div>`;
 
-    html += `<div class="card"><h2>Backup &amp; sharing</h2>
-      <p class="small muted" style="margin-top:0">Your data is stored only on this device. Download a backup regularly. To move data to another phone, download a backup here and restore it there.</p>
-      <div class="btn-row">
-        <button class="btn" data-action="export-json">Download backup</button>
-        <button class="btn" data-action="import-json">Restore backup</button>
-        <button class="btn" data-action="export-csv-all">Export all as CSV</button>
-      </div>
-      <input type="file" id="import-file" accept="application/json,.json" hidden>
-      <div class="btn-row"><button class="btn danger small" data-action="reset">Erase everything</button></div></div>`;
+    if (store.shared) {
+      html += `<div class="card"><h2>Sharing &amp; backup</h2>
+        <p class="small muted" style="margin-top:0">This budget is shared. Anything either of you adds or changes shows up on the other's phone straight away.</p>
+        <div class="btn-row">
+          <button class="btn" data-action="export-json">Download backup</button>
+          <button class="btn" data-action="export-csv-all">Export all as CSV</button>
+        </div></div>`;
+    } else {
+      html += `<div class="card"><h2>Backup &amp; sharing</h2>
+        <p class="small muted" style="margin-top:0">Your data is stored only on this device. Download a backup regularly. To move data to another phone, download a backup here and restore it there.</p>
+        <div class="btn-row">
+          <button class="btn" data-action="export-json">Download backup</button>
+          <button class="btn" data-action="import-json">Restore backup</button>
+          <button class="btn" data-action="export-csv-all">Export all as CSV</button>
+        </div>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+        <div class="btn-row"><button class="btn danger small" data-action="reset">Erase everything</button></div></div>`;
+    }
     return html;
   }
 
@@ -547,7 +596,8 @@
       <input type="hidden" name="recurringId" value="${esc(t.recurringId || '')}">`;
 
     const footer = existing ? `<button class="btn danger" type="button" data-action="delete-txn" data-id="${esc(existing.id)}">Delete</button>` : '';
-    const form = openSheet(existing ? 'Edit entry' : 'Add entry', body, (fd) => saveTxn(existing, fd), footer);
+    const by = existing && firstName(existing.createdBy);
+    const form = openSheet(existing ? (by ? `Added by ${by}` : 'Edit entry') : 'Add entry', body, (fd) => saveTxn(existing, fd), footer);
 
     let toAmountTouched = Boolean(existing && existing.type === 'transfer');
     const update = () => {
@@ -611,7 +661,8 @@
     if (!(amount > 0)) return 'Enter an amount';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '')) return 'Choose a date';
 
-    const t = existing || { id: C.uid(), createdAt: Date.now() };
+    const t = existing ? { ...existing } : { id: C.uid(), createdAt: Date.now() };
+    if (!existing && store.meId) t.createdBy = store.meId;
     t.type = type;
     t.amount = amount;
     t.walletId = walletId;
@@ -645,8 +696,7 @@
     }
     prefs.lastWallet = walletId;
     savePrefs();
-    if (!existing) state.transactions.push(t);
-    save();
+    store.putTxn(t);
     if (C.monthKey(date) !== ui.month) ui.month = C.monthKey(date);
     toast(existing ? 'Updated' : 'Saved');
     return null;
@@ -681,7 +731,7 @@
       if (!(amount > 0)) return 'Enter an amount';
       if (!walletId) return 'Choose a wallet';
       if (fd.get('frequency') === 'months' && months.length === 0) return 'Choose at least one month';
-      const item = existing || { id: C.uid() };
+      const item = existing ? { ...existing } : { id: C.uid() };
       Object.assign(item, {
         name,
         amount,
@@ -692,8 +742,7 @@
       });
       if (months.length && months.length < 12) item.months = months;
       else delete item.months;
-      if (!existing) state.recurring.push(item);
-      save();
+      store.putRecurring(item);
       toast('Saved');
       return null;
     }, footer);
@@ -720,13 +769,12 @@
     openSheet(existing ? 'Edit wallet' : 'New wallet', body, (fd) => {
       const name = String(fd.get('name') || '').trim();
       if (!name) return 'Enter a name';
-      const item = existing || { id: C.uid(), currency: fd.get('currency'), archived: false };
+      const item = existing ? { ...existing } : { id: C.uid(), currency: fd.get('currency'), archived: false };
       item.name = name;
       item.type = fd.get('type');
       item.openingBalance = parseAmount(fd.get('openingBalance'));
       if (existing) item.archived = fd.get('archived') === 'on';
-      if (!existing) state.wallets.push(item);
-      save();
+      store.putWallet(item);
       toast('Saved');
       return null;
     }, footer);
@@ -745,13 +793,12 @@
     openSheet(existing ? 'Edit category' : 'New category', body, (fd) => {
       const name = String(fd.get('name') || '').trim();
       if (!name) return 'Enter a name';
-      const item = existing || { id: C.uid() };
+      const item = existing ? { ...existing } : { id: C.uid() };
       item.name = name;
       item.icon = String(fd.get('icon') || '📌').trim() || '📌';
       if (fd.get('walletId')) item.walletId = fd.get('walletId');
       else delete item.walletId;
-      if (!existing) state.categories.push(item);
-      save();
+      store.putCategory(item);
       return null;
     }, footer);
   }
@@ -800,58 +847,45 @@
       const v = parseFloat(form.elements[code].value);
       if (v > 0) perUSD[code] = v;
     }
-    const existing = state.rates.find((r) => r.date === date);
-    if (existing) {
-      existing.perUSD = Object.assign({}, existing.perUSD, perUSD);
-      existing.source = 'manual';
-    } else {
-      state.rates.push({ date, perUSD, source: 'manual' });
-    }
-    // The untouched default entry is no longer needed once real rates exist.
-    if (state.rates.length > 1) state.rates = state.rates.filter((r) => r.source !== 'default');
-    save();
+    const existing = state.rates.find((r) => r.date === date && r.source !== 'default');
+    store.putRate({ date, perUSD: Object.assign({}, existing && existing.perUSD, perUSD), source: 'manual' });
     toast('Rates saved');
-    render();
   }
 
   function setBudgetsFromFixed() {
     const report = C.budgetReport(state, ui.month);
-    let n = 0;
+    const patch = {};
     for (const r of report.rows) {
-      if (!r.regular && r.fixedMonthly) {
-        state.budgets[r.category.id] = Math.ceil(r.fixedMonthly);
-        n++;
-      }
+      if (!r.regular && r.fixedMonthly) patch[r.category.id] = Math.ceil(r.fixedMonthly);
     }
-    save();
-    render();
+    const n = Object.keys(patch).length;
+    if (n) store.setBudgets(patch);
     toast(n ? `Filled ${n} budget${n === 1 ? '' : 's'}` : 'Nothing to fill');
   }
 
-  function setBudgetsFromLastMonth() {
+  async function setBudgetsFromLastMonth() {
     const last = C.monthSummary(state, C.shiftMonth(ui.month, -1));
     const cats = Object.keys(last.byCategory);
     if (!cats.length) return toast('No spending recorded last month');
-    if (!confirm('Replace budgets with last month\'s spending (rounded up to the nearest $10)?')) return;
-    for (const id of cats) state.budgets[id] = Math.ceil(last.byCategory[id] / 10) * 10;
-    save();
-    render();
+    if (!(await askConfirm("Replace budgets with last month's spending, rounded up to the nearest $10?", 'Replace'))) return;
+    const patch = {};
+    for (const id of cats) patch[id] = Math.ceil(last.byCategory[id] / 10) * 10;
+    store.setBudgets(patch);
   }
 
   function importJSON(file) {
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
+      let data;
       try {
-        const data = JSON.parse(reader.result);
+        data = JSON.parse(reader.result);
         if (!data || !Array.isArray(data.transactions) || !Array.isArray(data.wallets)) throw new Error('bad file');
-        if (!confirm(`Replace everything on this device with the backup (${data.transactions.length} entries)?`)) return;
-        state = C.normalizeState(data);
-        save();
-        render();
-        toast('Backup restored');
       } catch (e) {
-        toast('That file is not a Family Budget backup');
+        return toast('That file is not a Family Budget backup');
       }
+      if (!(await askConfirm(`Replace everything on this device with the backup (${data.transactions.length} entries)?`, 'Replace'))) return;
+      store.replaceAll(data);
+      toast('Backup restored');
     };
     reader.readAsText(file);
   }
@@ -863,10 +897,10 @@
     'month-next': () => { ui.month = C.shiftMonth(ui.month, 1); render(); },
     'goto-rates': () => { ui.tab = 'settings'; render(); document.getElementById('rates-card').scrollIntoView(); },
     'edit-txn': (el) => openTxnSheet(state.transactions.find((t) => t.id === el.dataset.id)),
-    'delete-txn': (el) => {
-      if (!confirm('Delete this entry?')) return;
-      state.transactions = state.transactions.filter((t) => t.id !== el.dataset.id);
-      save(); closeSheet(); render(); toast('Deleted');
+    'delete-txn': async (el) => {
+      if (!(await askConfirm('Delete this entry?'))) return;
+      store.deleteTxn(el.dataset.id);
+      closeSheet(); toast('Deleted');
     },
     'pay-recurring': (el) => {
       const r = state.recurring.find((x) => x.id === el.dataset.id);
@@ -880,31 +914,30 @@
     },
     'add-recurring': () => openRecurringSheet(),
     'edit-recurring': (el) => openRecurringSheet(state.recurring.find((r) => r.id === el.dataset.id)),
-    'delete-recurring': (el) => {
-      if (!confirm('Delete this regular cost? Past payments stay recorded.')) return;
-      state.recurring = state.recurring.filter((r) => r.id !== el.dataset.id);
-      save(); closeSheet(); render();
+    'delete-recurring': async (el) => {
+      if (!(await askConfirm('Delete this regular cost? Past payments stay recorded.'))) return;
+      store.deleteRecurring(el.dataset.id);
+      closeSheet();
     },
     'add-wallet': () => openWalletSheet(),
     'edit-wallet': (el) => openWalletSheet(C.walletById(state, el.dataset.id)),
-    'delete-wallet': (el) => {
-      if (!confirm('Delete this wallet?')) return;
-      state.wallets = state.wallets.filter((w) => w.id !== el.dataset.id);
-      save(); closeSheet(); render();
+    'delete-wallet': async (el) => {
+      if (!(await askConfirm('Delete this wallet?'))) return;
+      store.deleteWallet(el.dataset.id);
+      closeSheet();
     },
     'add-category': () => openCategorySheet(),
     'edit-category': (el) => openCategorySheet(state.categories.find((c) => c.id === el.dataset.id)),
-    'delete-category': (el) => {
-      state.categories = state.categories.filter((c) => c.id !== el.dataset.id);
-      delete state.budgets[el.dataset.id];
-      save(); closeSheet(); render();
+    'delete-category': async (el) => {
+      if (!(await askConfirm('Delete this category?'))) return;
+      store.deleteCategory(el.dataset.id);
+      closeSheet();
     },
     'fetch-rates': fetchRates,
-    'delete-rate': (el) => {
+    'delete-rate': async (el) => {
       if (state.rates.length <= 1) return toast('Keep at least one set of rates');
-      if (!confirm(`Delete rates from ${el.dataset.date}?`)) return;
-      state.rates = state.rates.filter((r) => r.date !== el.dataset.date);
-      save(); render();
+      if (!(await askConfirm(`Delete the rates from ${el.dataset.date}?`))) return;
+      store.deleteRate(el.dataset.date);
     },
     'budget-from-fixed': setBudgetsFromFixed,
     'budget-from-last': setBudgetsFromLastMonth,
@@ -912,16 +945,18 @@
     'export-csv-all': () => download(`budget-all-${C.todayISO()}.csv`, C.toCSV(state), 'text/csv'),
     'export-json': () => download(`family-budget-backup-${C.todayISO()}.json`, JSON.stringify(state, null, 2), 'application/json'),
     'import-json': () => document.getElementById('import-file').click(),
-    reset: () => {
-      if (!confirm('Erase all entries, wallets, regular costs and budgets on this device? Your family setup will be loaded again.')) return;
-      if (!confirm('Are you sure? Download a backup first if unsure.')) return;
-      state = C.defaultState();
-      C.applySetup(state, window.FAMILY_SETUP);
-      save(); render(); toast('Erased');
+    reset: async () => {
+      if (!store.replaceAll) return;
+      if (!(await askConfirm('Erase all entries, wallets, regular costs and budgets on this device? Your family setup will be loaded again. Download a backup first if unsure.', 'Erase everything'))) return;
+      const fresh = C.defaultState();
+      C.applySetup(fresh, window.FAMILY_SETUP);
+      store.replaceAll(fresh);
+      toast('Erased');
     },
   };
 
   document.addEventListener('click', (e) => {
+    if (!store || !store.ready) return;
     const tabBtn = e.target.closest('[data-tab]');
     if (tabBtn) {
       ui.tab = tabBtn.dataset.tab;
@@ -937,6 +972,7 @@
   });
 
   document.addEventListener('submit', (e) => {
+    if (e.target.method === 'dialog') return; // confirm dialog closes itself
     e.preventDefault();
     if (e.target.id === 'rates-form') return saveRates(e.target);
     if (e.target.closest('#sheet') && sheetSubmit) {
@@ -952,11 +988,7 @@
       ui.filter = e.target.value;
       render();
     } else if (e.target.dataset.budget) {
-      const v = parseAmount(e.target.value);
-      if (v > 0) state.budgets[e.target.dataset.budget] = v;
-      else delete state.budgets[e.target.dataset.budget];
-      save();
-      render();
+      store.setBudgets({ [e.target.dataset.budget]: parseAmount(e.target.value) });
     } else if (e.target.id === 'import-file' && e.target.files[0]) {
       importJSON(e.target.files[0]);
       e.target.value = '';
@@ -972,11 +1004,37 @@
     if (e.target === $sheet) closeSheet();
   });
 
-  render();
-  if (setupAdded && state.transactions.length) toast(`Added ${setupAdded} new item${setupAdded === 1 ? '' : 's'} from your family setup`);
+  // ---------- start ----------
 
-  // Lets the installed app open without a connection.
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+  function showProblem(message) {
+    $view.innerHTML = `<div class="card"><h2>Can't open the shared budget</h2><p class="small">${esc(message)}</p></div>`;
   }
+
+  async function boot() {
+    const inClaude = window.claude && typeof window.claude.use === 'function';
+    if (!inClaude) {
+      store = window.BudgetStore.createLocal(C, window.FAMILY_SETUP);
+      // Lets the installed app open without a connection.
+      if ('serviceWorker' in navigator && location.protocol === 'https:') {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
+      }
+    } else {
+      render(); // loading state
+      const db = await window.claude.use('db');
+      if (!db) return showProblem('Make sure you are signed in to Claude, then reload this page.');
+      user = await window.claude.use('user');
+      downloads = await window.claude.use('downloads');
+      const meId = user ? await user.id() : null;
+      store = window.BudgetStore.createShared(C, db, meId);
+    }
+    state = store.state;
+    store.onChange(render);
+    store.onError(toast);
+    render();
+    if (store.setupAdded && state.transactions.length) {
+      toast(`Added ${store.setupAdded} new item${store.setupAdded === 1 ? '' : 's'} from your family setup`);
+    }
+  }
+
+  boot();
 })();

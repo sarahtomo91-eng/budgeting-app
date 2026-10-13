@@ -36,6 +36,18 @@ Categories are set up for local life (generator/solar, domestic staff,
 contractors, South Africa shopping, cross-border transport & duty…) and
 can be edited in Settings.
 
+## Shared version (syncs between phones)
+
+The family uses the app inside Claude, where it syncs between everyone it's
+shared with: https://claude.ai/artifact/5RYz3hgj1XWJDHYNw4z3xW
+
+`shared-budget.html` is that page (published as a Claude artifact together
+with `js/` and `css/`). Each entry, regular cost, wallet, category, rate and
+budget is its own document in the artifact's database, so two people adding
+things at once never overwrite each other. The family setup was loaded into
+that database directly, so `js/family-setup.js` only applies to the
+single-phone version below.
+
 ## Our family setup
 
 `js/family-setup.js` holds our regular costs and budgets. They load into the
@@ -57,9 +69,8 @@ serve the folder (`npm start`, then visit http://localhost:8080).
 4. Open that link on each phone and choose **Add to Home screen** (Safari:
    Share button; Chrome: ⋮ menu). Once opened, it also works offline.
 
-Data is stored **only in the browser on that device** (localStorage). Use
-*Settings → Download backup* regularly. A backup can be restored on another
-device, but phones don't sync with each other yet.
+In this version data is stored **only in the browser on that device**
+(localStorage). Use the shared version above to sync between phones.
 
 ## Development
 
@@ -69,5 +80,6 @@ npm test   # unit tests for the currency / budget logic (js/core.js)
 
 - `js/core.js` – all calculations (rates, conversions, balances, monthly
   summaries, budgets, fixed-cost status, CSV). No DOM, so it's tested in Node.
+- `js/store.js` – where data is kept: this browser, or the shared database.
 - `js/app.js` – the UI.
 - `css/styles.css` – mobile-first styles, light and dark mode.
